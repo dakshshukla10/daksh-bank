@@ -25,9 +25,13 @@ function TransactionForm({ userId, userName, currentBalance, onComplete }) {
     setLoading(true);
 
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch('/api/transactions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           userId: 'savings', // shared savings account
           type,

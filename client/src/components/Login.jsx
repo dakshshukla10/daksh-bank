@@ -27,10 +27,13 @@ function Login({ onLogin }) {
         const data = await response.json();
 
         if (data.success) {
-          setSuccess('Account created! You can now sign in.');
-          setIsSignup(false);
-          setName('');
-          setPin('');
+          // Store token if auto-login after signup
+          localStorage.setItem('authToken', data.token);
+          setSuccess('Account created successfully! Logging you in...');
+          // Auto-login after signup
+          setTimeout(() => {
+            onLogin(data.user);
+          }, 1000);
         } else {
           setError(data.message || 'Signup failed');
         }
@@ -45,6 +48,8 @@ function Login({ onLogin }) {
         const data = await response.json();
 
         if (data.success) {
+          // Store token in localStorage
+          localStorage.setItem('authToken', data.token);
           onLogin(data.user);
         } else {
           setError(data.message || 'Invalid credentials');

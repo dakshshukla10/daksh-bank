@@ -1,16 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../database');
+const { authenticateToken } = require('../middleware/auth');
+const { validateBalanceQuery } = require('../middleware/validation');
 
 // GET /api/balance?userId=xxx
-router.get('/', (req, res) => {
+router.get('/', authenticateToken, validateBalanceQuery, (req, res) => {
   try {
     const { userId } = req.query;
 
-    if (!userId) {
-      return res.status(400).json({ 
+    // Verify user can only access their own balance
+    if (req.user.userId !== userId.toLowerCase()) {
+      return res.status(403).json({ 
         success: false, 
-        message: 'User ID is required' 
+        message: 'Access denied. You can only view your own balance.' 
       });
     }
 

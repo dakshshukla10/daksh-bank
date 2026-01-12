@@ -2,88 +2,88 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../database');
 const { Parser } = require('json2csv');
+const { authenticateToken } = require('../middleware/auth');
+const { transactionLimiter } = require('../middleware/rateLimiter');
+const { validateTransaction, validateTransactionQuery } = require('../middleware/validation');
 
 // POST /api/transactions - Create a new transaction
-router.post('/', (req, res) => {
+router.post('/', authenticateToken, transactionLimiter, validateTransaction, (req, res) => {
   try {
     const { userId, type, amount, description, addedBy } = req.body;
 
-    if (!userId || !type || !amount || !addedBy) {
-      return res.status(400).json({ 
+    // Verify addedBy matches authenticated user
+    if (req.user.userId !== addedBy.toLowerCase()) {
+      return res.status(403).json({ 
         success: false, 
-        message: 'User ID, type, amount, and addedBy are required' 
-      });
-    }
-
-    if (!['add', 'deduct'].includes(type)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Type must be "add" or "deduct"' 
-      });
-    }
-
-    if (amount <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Amount must be positive' 
+        message: 'Access denied. You can only create transactions as yourself.' 
       });
     }
 
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE id = ?')
-      .get(userId.toLowerCase());
+    
+    // Start a transaction to ensure atomicity
+    const transaction = db.transaction((userId, type, amount, description, addedBy) => {
+      // Get current balance with a lock
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId.toLowerCase());
 
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
-      });
-    }
-
-    let newBalance;
-    if (type === 'add') {
-      newBalance = user.balance + amount;
-    } else {
-      if (user.balance < amount) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Insufficient balance' 
-        });
+      if (!user) {
+        throw new Error('User not found');
       }
-      newBalance = user.balance - amount;
-    }
 
-    // Update user balance
-    db.prepare('UPDATE users SET balance = ? WHERE id = ?')
-      .run(newBalance, userId.toLowerCase());
+      let newBalance;
+      if (type === 'add') {
+        newBalance = user.balance + amount;
+      } else {
+        if (user.balance < amount) {
+          throw new Error('Insufficient balance');
+        }
+        newBalance = user.balance - amount;
+      }
 
-    // Insert transaction record
-    const result = db.prepare(`
-      INSERT INTO transactions (user_id, type, amount, description, added_by, balance_after)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(userId.toLowerCase(), type, amount, description || '', addedBy.toLowerCase(), newBalance);
+      // Update user balance
+      db.prepare('UPDATE users SET balance = ? WHERE id = ?')
+        .run(newBalance, userId.toLowerCase());
+
+      // Insert transaction record
+      const result = db.prepare(`
+        INSERT INTO transactions (user_id, type, amount, description, added_by, balance_after)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(userId.toLowerCase(), type, amount, description || '', addedBy.toLowerCase(), newBalance);
+
+      return { transactionId: result.lastInsertRowid, newBalance };
+    });
+
+    // Execute the transaction atomically
+    const result = transaction(userId, type, amount, description, addedBy);
 
     res.json({
       success: true,
       transaction: {
-        id: result.lastInsertRowid,
+        id: result.transactionId,
         userId: userId.toLowerCase(),
         type,
         amount,
         description: description || '',
         addedBy: addedBy.toLowerCase(),
-        balanceAfter: newBalance
+        balanceAfter: result.newBalance
       },
-      newBalance
+      newBalance: result.newBalance
     });
   } catch (error) {
     console.error('Transaction error:', error);
+    // Return specific error messages for known errors
+    if (error.message === 'User not found') {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    if (error.message === 'Insufficient balance') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
 // GET /api/transactions - Get transactions with optional filters
-router.get('/', (req, res) => {
+router.get('/', authenticateToken, validateTransactionQuery, (req, res) => {
   try {
     const { userId, type, startDate, endDate, limit = 50, offset = 0, format } = req.query;
 

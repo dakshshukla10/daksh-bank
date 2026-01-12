@@ -10,6 +10,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('authToken');
     setUser(null);
   };
 

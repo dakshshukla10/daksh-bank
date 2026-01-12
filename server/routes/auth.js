@@ -1,32 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcrypt');
 const { getDb } = require('../database');
+const { generateToken } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimiter');
+const { validateSignup, validateLogin } = require('../middleware/validation');
 
 // POST /api/auth/signup
-router.post('/signup', (req, res) => {
+router.post('/signup', authLimiter, validateSignup, async (req, res) => {
   try {
     const { userId, name, pin } = req.body;
-
-    if (!userId || !name || !pin) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User ID, name, and PIN are required' 
-      });
-    }
-
-    if (userId.length < 2 || userId.length > 20) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User ID must be 2-20 characters' 
-      });
-    }
-
-    if (pin.length < 4 || pin.length > 6) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'PIN must be 4-6 digits' 
-      });
-    }
 
     const db = getDb();
     
@@ -39,13 +22,21 @@ router.post('/signup', (req, res) => {
       });
     }
 
+    // Hash PIN before storing
+    const saltRounds = 10;
+    const hashedPin = await bcrypt.hash(pin, saltRounds);
+
     // Create user
     db.prepare('INSERT INTO users (id, pin, name, balance) VALUES (?, ?, ?, 0)')
-      .run(userId.toLowerCase(), pin, name);
+      .run(userId.toLowerCase(), hashedPin, name);
+
+    // Generate JWT token
+    const token = generateToken(userId.toLowerCase(), name);
 
     res.json({
       success: true,
       message: 'Account created successfully',
+      token,
       user: {
         id: userId.toLowerCase(),
         name,
@@ -59,20 +50,13 @@ router.post('/signup', (req, res) => {
 });
 
 // POST /api/auth/verify-pin
-router.post('/verify-pin', (req, res) => {
+router.post('/verify-pin', authLimiter, validateLogin, async (req, res) => {
   try {
     const { userId, pin } = req.body;
 
-    if (!userId || !pin) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User ID and PIN are required' 
-      });
-    }
-
     const db = getDb();
-    const user = db.prepare('SELECT id, name, balance FROM users WHERE id = ? AND pin = ?')
-      .get(userId.toLowerCase(), pin);
+    const user = db.prepare('SELECT id, name, balance, pin FROM users WHERE id = ?')
+      .get(userId.toLowerCase());
 
     if (!user) {
       return res.status(401).json({ 
@@ -81,8 +65,21 @@ router.post('/verify-pin', (req, res) => {
       });
     }
 
+    // Verify PIN using bcrypt
+    const isValidPin = await bcrypt.compare(pin, user.pin);
+    if (!isValidPin) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // Generate JWT token
+    const token = generateToken(user.id, user.name);
+
     res.json({
       success: true,
+      token,
       user: {
         id: user.id,
         name: user.name,

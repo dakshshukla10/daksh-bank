@@ -10,10 +10,18 @@ function Dashboard({ user, onLogout, setUser }) {
 
   const fetchBalance = async () => {
     try {
-      const response = await fetch(`/api/balance?userId=savings`);
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(`/api/balance?userId=savings`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       const data = await response.json();
       if (data.success) {
         setUser(prev => ({ ...prev, balance: data.balance }));
+      } else if (response.status === 401 || response.status === 403) {
+        // Token expired or invalid
+        onLogout();
       }
     } catch (err) {
       console.error('Failed to fetch balance:', err);
@@ -23,16 +31,24 @@ function Dashboard({ user, onLogout, setUser }) {
   const fetchTransactions = async () => {
     setLoading(true);
     try {
+      const token = localStorage.getItem('authToken');
       // Fetch all transactions (shared savings - no user filter)
       const params = new URLSearchParams();
       if (filters.type) params.append('type', filters.type);
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
 
-      const response = await fetch(`/api/transactions?${params}`);
+      const response = await fetch(`/api/transactions?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       const data = await response.json();
       if (data.success) {
         setTransactions(data.transactions);
+      } else if (response.status === 401 || response.status === 403) {
+        // Token expired or invalid
+        onLogout();
       }
     } catch (err) {
       console.error('Failed to fetch transactions:', err);
@@ -52,12 +68,34 @@ function Dashboard({ user, onLogout, setUser }) {
   };
 
   const exportToCSV = () => {
+    const token = localStorage.getItem('authToken');
     const params = new URLSearchParams({ format: 'csv' });
     if (filters.type) params.append('type', filters.type);
     if (filters.startDate) params.append('startDate', filters.startDate);
     if (filters.endDate) params.append('endDate', filters.endDate);
     
-    window.open(`/api/transactions?${params}`, '_blank');
+    // Create a temporary link with auth header (via fetch and blob)
+    const fetchCSV = async () => {
+      try {
+        const response = await fetch(`/api/transactions?${params}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'transactions.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error('Failed to export CSV:', err);
+      }
+    };
+    fetchCSV();
   };
 
   return (
