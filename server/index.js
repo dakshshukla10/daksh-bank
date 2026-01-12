@@ -22,8 +22,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests) in development
-    if (!origin && process.env.NODE_ENV === 'development') {
+    // Allow requests with no origin (same domain, mobile apps, curl)
+    if (!origin) {
       return callback(null, true);
     }
     if (allowedOrigins.indexOf(origin) !== -1) {
