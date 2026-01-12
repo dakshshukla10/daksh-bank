@@ -9,8 +9,9 @@ router.get('/', authenticateToken, validateBalanceQuery, (req, res) => {
   try {
     const { userId } = req.query;
 
-    // Verify user can only access their own balance
-    if (req.user.userId !== userId.toLowerCase()) {
+    // Allow access to shared 'savings' account for all authenticated users
+    // For personal accounts, verify user can only access their own balance
+    if (userId.toLowerCase() !== 'savings' && req.user.userId !== userId.toLowerCase()) {
       return res.status(403).json({ 
         success: false, 
         message: 'Access denied. You can only view your own balance.' 

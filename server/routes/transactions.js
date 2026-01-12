@@ -19,6 +19,14 @@ router.post('/', authenticateToken, transactionLimiter, validateTransaction, (re
       });
     }
 
+    // Only allow transactions on the shared 'savings' account
+    if (userId.toLowerCase() !== 'savings') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Transactions are only allowed on the shared savings account.' 
+      });
+    }
+
     const db = getDb();
     
     // Start a transaction to ensure atomicity
